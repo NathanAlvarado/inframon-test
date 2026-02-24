@@ -60,7 +60,7 @@ services:
       - monitoring
 
   node-exporter:
-    image: prom/node-exporter:${NODE-EXPORTER_VERSION}
+    image: prom/node-exporter:${NODE_EXPORTER_VERSION}
     container_name: node-exporter
     restart: unless-stopped
     pid: host
@@ -97,18 +97,20 @@ services:
     build: ./exporters/primera
     pull_policy: build
     volumes:
-      - ./exporters/primera/config.yaml:/config.yaml:ro
-    command: ["python", "hpe_primera_exporter.py", "--config", "/config.yaml"]
+      - ./exporters/primera/config.yml:/config.yml:ro
+    command: ["python", "hpe_primera_exporter.py", "--config", "/config.yml"]
     ports:
       - "9118:9118"
     restart: unless-stopped
+    networks:
+      - monitoring
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:${OTEL_VERSION}
     container_name: otel-collector
     restart: unless-stopped
     volumes:
-      - ./otel/collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - ./otel/collector-config.yml:/etc/otelcol-contrib/config.yml:ro
     environment:
       - ESXI_ENDPOINT=${ESXI_ENDPOINT}
       - ESXI_USERNAME=${ESXI_USERNAME}

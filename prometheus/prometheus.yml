@@ -24,6 +24,10 @@ scrape_configs:
     static_configs:
       - targets: ["cadvisor:8080"]
 
+  - job_name: "hpe-primera-exporter"
+    static_configs:
+      - targets: ["hpe-primera-exporter:9118"]
+
   - job_name: "otel-vcenter"
     static_configs:
       - targets: ["otel-collector:8889"]

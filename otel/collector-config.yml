@@ -43,7 +43,7 @@ processors:
   resource:
     attributes:
       - key: environment
-        value: ${env:ENVIRONMENT:-production}
+        value: production
         action: upsert
 
   # Filter to only the metric sets you care about (comment out to keep all).
