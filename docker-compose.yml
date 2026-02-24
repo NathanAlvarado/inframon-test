@@ -93,17 +93,31 @@ services:
     networks:
       - monitoring
 
-  hpe-primera-exporter:
-    build: ./exporters/primera
-    pull_policy: build
-    volumes:
-      - ./exporters/primera/config.yml:/config.yml:ro
-    command: ["python", "hpe_primera_exporter.py", "--config", "/config.yml"]
-    ports:
-      - "9118:9118"
-    restart: unless-stopped
-    networks:
-      - monitoring
+hpe-primera-exporter:
+  build: ./exporters/primera
+  pull_policy: build
+  container_name: hpe-primera-exporter
+  command: ["python", "hpe_primera_exporter.py"]
+  environment:
+    - HPE_PRIMERA_ARRAY_COUNT=${HPE_PRIMERA_ARRAY_COUNT:-1}
+    - HPE_PRIMERA_EXPORTER_PORT=9118
+    # Array 0
+    - HPE_PRIMERA_0_HOST=${HPE_PRIMERA_0_HOST}
+    - HPE_PRIMERA_0_PORT=${HPE_PRIMERA_0_PORT:-8080}
+    - HPE_PRIMERA_0_SCHEME=${HPE_PRIMERA_0_SCHEME:-https}
+    - HPE_PRIMERA_0_USERNAME=${HPE_PRIMERA_0_USERNAME}
+    - HPE_PRIMERA_0_PASSWORD=${HPE_PRIMERA_0_PASSWORD}
+    - HPE_PRIMERA_0_VERIFY_SSL=${HPE_PRIMERA_0_VERIFY_SSL:-false}
+    - HPE_PRIMERA_0_TIMEOUT=${HPE_PRIMERA_0_TIMEOUT:-30}
+    # Array 1 (uncomment if needed)
+    # - HPE_PRIMERA_1_HOST=${HPE_PRIMERA_1_HOST}
+    # - HPE_PRIMERA_1_USERNAME=${HPE_PRIMERA_1_USERNAME}
+    # - HPE_PRIMERA_1_PASSWORD=${HPE_PRIMERA_1_PASSWORD}
+  ports:
+    - "9118:9118"
+  restart: unless-stopped
+  networks:
+    - monitoring
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:${OTEL_VERSION}

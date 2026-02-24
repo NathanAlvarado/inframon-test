@@ -680,17 +680,28 @@ class PrimeraCollector:
 # Entrypoint
 # ---------------------------------------------------------------------------
 
-def load_config(path: str) -> Dict:
-    with open(path) as f:
-        return yaml.safe_load(f)
+def load_config_from_env() -> Dict:
+    array_count = int(os.getenv("HPE_PRIMERA_ARRAY_COUNT", "1"))
+    arrays = []
+    for i in range(array_count):
+        prefix = f"HPE_PRIMERA_{i}_"
+        arrays.append({
+            "host":       os.environ[f"{prefix}HOST"],  # required, fail fast if missing
+            "port":       int(os.getenv(f"{prefix}PORT",       "8080")),
+            "scheme":     os.getenv(f"{prefix}SCHEME",         "https"),
+            "username":   os.environ[f"{prefix}USERNAME"],
+            "password":   os.environ[f"{prefix}PASSWORD"],
+            "verify_ssl": os.getenv(f"{prefix}VERIFY_SSL",     "false").lower() == "true",
+            "timeout":    int(os.getenv(f"{prefix}TIMEOUT",    "30")),
+        })
+    return {
+        "exporter_port": int(os.getenv("HPE_PRIMERA_EXPORTER_PORT", "9118")),
+        "arrays": arrays,
+    }
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="HPE Primera Prometheus Exporter"
-    )
-    parser.add_argument("--config", default="config.yaml",
-                        help="Path to config.yaml (default: config.yaml)")
+    parser = argparse.ArgumentParser(description="HPE Primera Prometheus Exporter")
     parser.add_argument("--port", type=int, default=None,
                         help="Override HTTP port to expose metrics on.")
     parser.add_argument("--log-level", default="INFO",
@@ -699,14 +710,11 @@ def main():
 
     logging.getLogger().setLevel(args.log_level)
 
-    cfg = load_config(args.config)
-    listen_port = args.port or int(cfg.get("exporter_port", 9118))
-
-    # Support multiple array targets in one process
-    arrays = cfg.get("arrays", [cfg])  # fall back to top-level keys for single array
+    cfg = load_config_from_env()
+    listen_port = args.port or cfg["exporter_port"]
 
     registry = CollectorRegistry()
-    for array_cfg in arrays:
+    for array_cfg in cfg["arrays"]:
         collector = PrimeraCollector(array_cfg)
         registry.register(collector)
         log.info("Registered collector for array: %s", array_cfg["host"])

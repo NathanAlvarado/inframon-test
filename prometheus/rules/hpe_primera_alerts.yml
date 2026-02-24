@@ -118,7 +118,7 @@ groups:
 
       - alert: HpePrimeraVolumeNotStarted
         # Mirror: "HPE Primera: VV {#NAME} state: NOT_STARTED / LDS_NOT_STARTED"
-        expr: hpe_primera_volume_state > 0 and hpe_primera_volume_state <= 2
+        expr: hpe_primera_volume_state > 1 and hpe_primera_volume_state <= 2
         for: 0m
         labels:
           severity: warning
