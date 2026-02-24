@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "instance"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: "default"
+
+receivers:
+  - name: "default"
+    # Freshservice.
+    webhook_configs:
+      - url: "http://your-webhook-url"
+        send_resolved: true
+
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname", "instance"]

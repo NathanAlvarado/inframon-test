@@ -1,0 +1,295 @@
+---
+# HPE Primera — Prometheus Alerting Rules
+# =========================================
+# These rules mirror every trigger in the official Zabbix HPE Primera by HTTP
+# template.  Severity labels map as follows:
+#
+#   Zabbix "Disaster" / "High"  → severity: critical
+#   Zabbix "Average"             → severity: warning
+#   Zabbix "Warning"             → severity: warning
+#   Zabbix "Information"         → severity: info
+#
+# To load these rules add a rule_files entry to your prometheus.yml:
+#
+#   rule_files:
+#     - /etc/prometheus/rules/hpe_primera.yml
+
+groups:
+
+  - name: hpe_primera.connectivity
+    rules:
+
+      - alert: HpePrimeraServiceUnavailable
+        # Mirror: "HPE Primera: Service is unavailable"
+        expr: hpe_primera_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HPE Primera {{ $labels.array }}: WSAPI unreachable"
+          description: >
+            The exporter has been unable to authenticate against the HPE Primera
+            WSAPI on {{ $labels.array }} for the last 5 minutes.
+            Ensure the WSAPI is running (CLI: showwsapi) and the network path is open.
+
+  - name: hpe_primera.system
+    rules:
+
+      - alert: HpePrimeraNodeDegraded
+        # Mirror: "HPE Primera: Node is degraded"
+        expr: hpe_primera_system_degraded_nodes > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HPE Primera {{ $labels.array }}: {{ $value }} node(s) degraded"
+          description: >
+            {{ $value }} node(s) are in a degraded state on array {{ $labels.array }}.
+
+      - alert: HpePrimeraNodeFailed
+        # Mirror: "HPE Primera: Node is failed"
+        expr: hpe_primera_system_failed_nodes > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HPE Primera {{ $labels.array }}: {{ $value }} node(s) failed"
+          description: >
+            {{ $value }} node(s) have FAILED on array {{ $labels.array }}.
+            Immediate attention required.
+
+  - name: hpe_primera.cpg
+    rules:
+
+      - alert: HpePrimeraCpgDegraded
+        # Mirror: "HPE Primera: CPG {#NAME} is degraded"
+        expr: hpe_primera_cpg_state == 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HPE Primera {{ $labels.array }}: CPG {{ $labels.cpg }} degraded"
+          description: >
+            CPG {{ $labels.cpg }} on array {{ $labels.array }} is in a DEGRADED state.
+
+      - alert: HpePrimeraCpgFailed
+        # Mirror: "HPE Primera: CPG {#NAME} is failed"
+        expr: hpe_primera_cpg_state == 3
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HPE Primera {{ $labels.array }}: CPG {{ $labels.cpg }} FAILED"
+          description: >
+            CPG {{ $labels.cpg }} on array {{ $labels.array }} has FAILED.
+
+      - alert: HpePrimeraCpgSpaceWarning
+        # Mirror: "HPE Primera: CPG {#NAME} space usage > 80%"
+        expr: >
+          (hpe_primera_cpg_used_usr_bytes /
+           clamp_min(hpe_primera_cpg_total_bytes, 1)) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: CPG {{ $labels.cpg }} space > 80%
+          description: >
+            CPG {{ $labels.cpg }} on array {{ $labels.array }} user space utilisation
+            is {{ printf "%.1f" $value }}%.
+
+      - alert: HpePrimeraCpgSpaceCritical
+        # Mirror: "HPE Primera: CPG {#NAME} space usage > 90%"
+        expr: >
+          (hpe_primera_cpg_used_usr_bytes /
+           clamp_min(hpe_primera_cpg_total_bytes, 1)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: CPG {{ $labels.cpg }} space > 90%
+          description: >
+            CPG {{ $labels.cpg }} on array {{ $labels.array }} user space utilisation
+            is critically high at {{ printf "%.1f" $value }}%.
+
+  - name: hpe_primera.volumes
+    rules:
+
+      - alert: HpePrimeraVolumeNotStarted
+        # Mirror: "HPE Primera: VV {#NAME} state: NOT_STARTED / LDS_NOT_STARTED"
+        expr: hpe_primera_volume_state > 0 and hpe_primera_volume_state <= 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} not started
+          description: >
+            Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
+            has state {{ $value }} (1=LDS_NOT_STARTED, 2=NOT_STARTED).
+
+      - alert: HpePrimeraVolumeNeedsCheck
+        # Mirror: "HPE Primera: VV {#NAME} state: NEEDS_CHECK / NEEDS_MAINT_CHECK"
+        expr: hpe_primera_volume_state >= 3 and hpe_primera_volume_state <= 4
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} needs check
+          description: >
+            Volume {{ $labels.volume }} on {{ $labels.array }} requires a consistency
+            or maintenance check (state={{ $value }}).
+
+      - alert: HpePrimeraVolumeFailed
+        # Mirror: "HPE Primera: VV {#NAME} state: INTERNAL_CONSISTENCY_ERROR / SNAPDATA_INVALID / etc."
+        expr: hpe_primera_volume_failed == 1
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} in error state
+          description: >
+            Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
+            is in a failed/error state (code {{ $value }}).  Refer to WSAPI state
+            codes 5–9 for the specific cause.
+
+      - alert: HpePrimeraVolumeDegraded
+        # Mirror: "HPE Primera: VV {#NAME} state: DEGRADED_AVAIL / DEGRADED_PERF"
+        expr: hpe_primera_volume_degraded == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} degraded
+          description: >
+            Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
+            is degraded (10=DEGRADED_AVAIL, 11=DEGRADED_PERF).
+
+      - alert: HpePrimeraVolumeStale
+        # Mirror: "HPE Primera: VV {#NAME} state: STALE"
+        expr: hpe_primera_volume_stale == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} is stale
+          description: >
+            Volume {{ $labels.volume }} on {{ $labels.array }} is stale — parts of
+            the volume contain old data due to a copy-on-write failure.
+
+  - name: hpe_primera.disks
+    rules:
+
+      - alert: HpePrimeraDiskDegraded
+        # Mirror: "HPE Primera: Disk {#POSITION} is degraded"
+        expr: hpe_primera_disk_state == 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Disk {{ $labels.disk_id }} degraded
+          description: >
+            Physical disk {{ $labels.disk_id }} at position {{ $labels.position }}
+            on array {{ $labels.array }} is DEGRADED.
+
+      - alert: HpePrimeraDiskFailed
+        # Mirror: "HPE Primera: Disk {#POSITION} is failed"
+        expr: hpe_primera_disk_state == 3
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Disk {{ $labels.disk_id }} FAILED
+          description: >
+            Physical disk {{ $labels.disk_id }} at position {{ $labels.position }}
+            on array {{ $labels.array }} has FAILED.
+
+      - alert: HpePrimeraDiskPathA0Degraded
+        # Mirror: "HPE Primera: Disk {#POSITION}: Path A0 degraded"
+        expr: hpe_primera_disk_path_a0_degraded == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Disk {{ $labels.disk_id }} path A0 degraded
+          description: >
+            The A0 path for disk {{ $labels.disk_id }} ({{ $labels.position }})
+            on array {{ $labels.array }} is degraded.
+
+      - alert: HpePrimeraDiskPathA1Degraded
+        # Mirror: "HPE Primera: Disk {#POSITION}: Path A1 degraded"
+        expr: hpe_primera_disk_path_a1_degraded == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Disk {{ $labels.disk_id }} path A1 degraded
+          description: >
+            The A1 path for disk {{ $labels.disk_id }} ({{ $labels.position }})
+            on array {{ $labels.array }} is degraded.
+
+      - alert: HpePrimeraDiskPathB0Degraded
+        # Mirror: "HPE Primera: Disk {#POSITION}: Path B0 degraded"
+        expr: hpe_primera_disk_path_b0_degraded == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Disk {{ $labels.disk_id }} path B0 degraded
+          description: >
+            The B0 path for disk {{ $labels.disk_id }} ({{ $labels.position }})
+            on array {{ $labels.array }} is degraded.
+
+      - alert: HpePrimeraDiskPathB1Degraded
+        # Mirror: "HPE Primera: Disk {#POSITION}: Path B1 degraded"
+        expr: hpe_primera_disk_path_b1_degraded == 1
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Disk {{ $labels.disk_id }} path B1 degraded
+          description: >
+            The B1 path for disk {{ $labels.disk_id }} ({{ $labels.position }})
+            on array {{ $labels.array }} is degraded.
+
+  - name: hpe_primera.ports
+    rules:
+
+      - alert: HpePrimeraPortDown
+        # Mirror: "HPE Primera: Port {#NODE}:{#SLOT}:{#CARD.PORT} is down/failed"
+        # Link states >= 10 and != READY(4) are considered unhealthy.
+        expr: hpe_primera_port_healthy == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Port {{ $labels.node }}:{{ $labels.slot }}:{{ $labels.card_port }} not READY
+          description: >
+            Port {{ $labels.node }}:{{ $labels.slot }}:{{ $labels.card_port }}
+            (type={{ $labels.type }}) on array {{ $labels.array }} link state is
+            not READY.  See hpe_primera_port_link_state for the numeric code.
+
+      - alert: HpePrimeraPortFailoverActive
+        # Mirror: "HPE Primera: Port {#NODE}:{#SLOT}:{#CARD.PORT} failover state"
+        expr: hpe_primera_port_failover_state > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: >
+            HPE Primera {{ $labels.array }}: Port {{ $labels.node }}:{{ $labels.slot }}:{{ $labels.card_port }} in failover
+          description: >
+            Port {{ $labels.node }}:{{ $labels.slot }}:{{ $labels.card_port }}
+            on array {{ $labels.array }} has a non-zero failover state ({{ $value }}).

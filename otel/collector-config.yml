@@ -1,0 +1,107 @@
+# OpenTelemetry Collector configuration
+# Documentation: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/vcenterreceiver
+#
+# Environment variables (set in .env):
+#   ESXI_ENDPOINT   - https://<esxi-host-ip>
+#   ESXI_USERNAME   - monitoring user (read-only is sufficient)
+#   ESXI_PASSWORD   - password
+
+receivers:
+  vcenter:
+    # For a standalone ESXi host point directly at its management IP.
+    # For vCenter, point at vCenter and the receiver will enumerate all hosts.
+    endpoint: ${env:ESXI_ENDPOINT}
+    username: ${env:ESXI_USERNAME}
+    password: ${env:ESXI_PASSWORD}
+
+    # How often to poll the vSphere SDK. ESXi stat counters refresh every 20s,
+    # so 60s is a sensible default that avoids hammering the management plane.
+    collection_interval: 60s
+
+    # TLS – set insecure: false and supply a CA cert in production.
+    tls:
+      insecure: true                    # ← flip to false and add ca_file in prod
+      insecure_skip_verify: true        # ← remove in prod
+
+  # Expose the collector's own operational metrics so Prometheus can also
+  # scrape them (useful for alerting on collection failures).
+  prometheus/internal:
+    config:
+      scrape_configs:
+        - job_name: otel-collector-internal
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["localhost:8888"]
+
+processors:
+  # Batch metrics before exporting to reduce load on downstream systems.
+  batch:
+    timeout: 10s
+    send_batch_size: 1000
+
+  # Add useful resource attributes as metric labels.
+  resource:
+    attributes:
+      - key: environment
+        value: ${env:ENVIRONMENT:-production}
+        action: upsert
+
+  # Filter to only the metric sets you care about (comment out to keep all).
+  # Full metric list:
+  # https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/receiver/vcenterreceiver/documentation.md
+  filter/vcenter:
+    error_mode: ignore
+    metrics:
+      include:
+        match_type: regexp
+        metric_names:
+          # Host-level
+          - vcenter\.host\.cpu\..*
+          - vcenter\.host\.memory\..*
+          - vcenter\.host\.disk\..*
+          - vcenter\.host\.network\..*
+          - vcenter\.host\.power_state
+          # VM-level
+          - vcenter\.vm\.cpu\..*
+          - vcenter\.vm\.memory\..*
+          - vcenter\.vm\.disk\..*
+          - vcenter\.vm\.network\..*
+          - vcenter\.vm\.power_state
+          # Datastore
+          - vcenter\.datastore\..*
+
+exporters:
+  # Expose metrics on :8889/metrics for Prometheus to scrape.
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: vmware           # all metrics will be prefixed vmware_
+    resource_to_telemetry_conversion:
+      enabled: true             # promotes resource attributes to metric labels
+
+  # Optional: uncomment to also see metrics in the collector log (debug).
+  # debug:
+  #   verbosity: detailed
+
+extensions:
+  health_check:
+    endpoint: "0.0.0.0:13133"
+  pprof:
+    endpoint: "0.0.0.0:1777"
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    metrics/vcenter:
+      receivers:  [vcenter]
+      processors: [batch, resource, filter/vcenter]
+      exporters:  [prometheus]
+    metrics/internal:
+      receivers:  [prometheus/internal]
+      processors: [batch]
+      exporters:  [prometheus]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: "0.0.0.0:8888"
