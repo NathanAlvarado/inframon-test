@@ -168,9 +168,6 @@ class PrimeraCollector:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _labels(self, **extra) -> Dict[str, str]:
-        return {"array": self.array_host, **extra}
-
     @staticmethod
     def _mib_to_bytes(mib: float) -> float:
         return mib * 1024 * 1024
@@ -642,7 +639,7 @@ class PrimeraCollector:
             port_type = str(port.get("type", "?"))
             lbl = [self.array_host, node, slot, card_port, port_type]
 
-            link_state = int(port.get("linkState", 0))
+            link_state = int(port.get("linkState", 4))
             failover = int(port.get("failoverState", 0))
 
             link_state_m.add_metric(lbl, float(link_state))
