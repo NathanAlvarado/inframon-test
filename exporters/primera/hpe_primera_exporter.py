@@ -4,38 +4,33 @@ HPE Primera Prometheus Exporter
 ================================
 Polls the HPE Primera / 3PAR WSAPI REST API and exposes metrics for Prometheus.
 
-Covers the same monitoring domains as the official Zabbix template:
-  - System information & health
-  - CPG (Common Provisioning Groups) capacity and state
-  - Virtual Volumes (VVs) state
-  - Physical Disks state and path health
-  - Nodes state
-  - Ports state and failover
+Configuration is entirely via environment variables:
+
+  HPE_PRIMERA_ARRAY_COUNT      Number of arrays to scrape (default: 1)
+  HPE_PRIMERA_EXPORTER_PORT    Port to expose /metrics on (default: 9118)
+
+  Per array (replace {i} with 0, 1, 2 ...):
+  HPE_PRIMERA_{i}_HOST         IP or hostname of the Primera array (required)
+  HPE_PRIMERA_{i}_USERNAME     WSAPI username (required)
+  HPE_PRIMERA_{i}_PASSWORD     WSAPI password (required)
+  HPE_PRIMERA_{i}_PORT         WSAPI port (default: 8080)
+  HPE_PRIMERA_{i}_SCHEME       http or https (default: https)
+  HPE_PRIMERA_{i}_VERIFY_SSL   true/false (default: false)
+  HPE_PRIMERA_{i}_TIMEOUT      Request timeout in seconds (default: 30)
 
 Usage:
-  pip install prometheus-client requests
-  python hpe_primera_exporter.py --config config.yaml
-
-Or via environment variables (see config.yaml for keys).
+  docker compose up hpe-primera-exporter
 """
 
 import argparse
 import logging
 import os
-import sys
 import time
 from typing import Any, Dict, Optional
 
 import requests
 import urllib3
-import yaml
-from prometheus_client import (
-    CollectorRegistry,
-    Gauge,
-    Info,
-    start_http_server,
-    REGISTRY,
-)
+from prometheus_client import CollectorRegistry, start_http_server
 from prometheus_client.core import GaugeMetricFamily, InfoMetricFamily
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -385,7 +380,6 @@ class PrimeraCollector:
         for cpg in cpgs:
             name = cpg.get("name", "unknown")
             lbl = [self.array_host, name]
-            space = cpg.get("UsrUsage", {})
 
             state_m.add_metric(lbl, float(cpg.get("state", 0)))
 
@@ -421,21 +415,15 @@ class PrimeraCollector:
 
     def _collect_volumes(self):
         """
-        VV detailed state flags, mirroring the Zabbix template's trigger conditions.
-        Each flag is a 0/1 gauge.
+        Mirrors the Zabbix HPE Primera volume triggers.
 
-        State codes from WSAPI:
-          1  = LDS_NOT_STARTED
-          2  = NOT_STARTED
-          3  = NEEDS_CHECK
-          4  = NEEDS_MAINT_CHECK
-          5  = INTERNAL_CONSISTENCY_ERROR
-          6  = SNAPDATA_INVALID
-          7  = PRESERVED
-          8  = STALE
-          9  = COPY_FAILED
-          10 = DEGRADED_AVAIL
-          11 = DEGRADED_PERF
+        The WSAPI exposes three separate fields per volume:
+        $.state          — primary health: 1=Normal, 2=Degraded, 3=Failed, 99=Unknown
+        $.degradedStates — array of detailed degraded state codes (informational)
+        $.failedStates   — array of detailed failed state codes (informational)
+
+        Zabbix only alerts on $.state; degradedStates/failedStates are collected
+        for context. We follow the same pattern.
         """
         try:
             volumes = self.client.get_volumes()
@@ -445,25 +433,20 @@ class PrimeraCollector:
 
         state_m = GaugeMetricFamily(
             "hpe_primera_volume_state",
-            "Volume state code (1=Normal, see WSAPI docs for other values).",
+            "Volume primary state: 1=Normal, 2=Degraded, 3=Failed, 99=Unknown.",
             labels=["array", "volume", "cpg"],
         )
-        failed_m = GaugeMetricFamily(
-            "hpe_primera_volume_failed",
-            "1 if the volume state indicates a failure (state >= 5).",
+        degraded_states_count_m = GaugeMetricFamily(
+            "hpe_primera_volume_degraded_states_count",
+            "Number of detailed degraded state codes active on the volume ($.degradedStates).",
             labels=["array", "volume", "cpg"],
         )
-        degraded_m = GaugeMetricFamily(
-            "hpe_primera_volume_degraded",
-            "1 if the volume is degraded (state 10 or 11).",
+        failed_states_count_m = GaugeMetricFamily(
+            "hpe_primera_volume_failed_states_count",
+            "Number of detailed failed state codes active on the volume ($.failedStates).",
             labels=["array", "volume", "cpg"],
         )
-        stale_m = GaugeMetricFamily(
-            "hpe_primera_volume_stale",
-            "1 if the volume is stale (state=8).",
-            labels=["array", "volume", "cpg"],
-        )
-        capacity_m = GaugeMetricFamily(
+        size_m = GaugeMetricFamily(
             "hpe_primera_volume_size_bytes",
             "Provisioned volume size in bytes.",
             labels=["array", "volume", "cpg"],
@@ -472,22 +455,17 @@ class PrimeraCollector:
         for vol in volumes:
             name = vol.get("name", "unknown")
             cpg_name = vol.get("userCPG", vol.get("copyOfName", ""))
-            state = int(vol.get("state", 1))
             lbl = [self.array_host, name, cpg_name]
 
-            state_m.add_metric(lbl, float(state))
-            failed_m.add_metric(lbl, 1.0 if state >= 5 else 0.0)
-            degraded_m.add_metric(lbl, 1.0 if state in (10, 11) else 0.0)
-            stale_m.add_metric(lbl, 1.0 if state == 8 else 0.0)
-
-            size_mib = float(vol.get("sizeMiB", 0))
-            capacity_m.add_metric(lbl, self._mib_to_bytes(size_mib))
+            state_m.add_metric(lbl, float(vol.get("state", 1)))
+            degraded_states_count_m.add_metric(lbl, float(len(vol.get("degradedStates", []))))
+            failed_states_count_m.add_metric(lbl, float(len(vol.get("failedStates", []))))
+            size_m.add_metric(lbl, self._mib_to_bytes(float(vol.get("sizeMiB", 0))))
 
         yield state_m
-        yield failed_m
-        yield degraded_m
-        yield stale_m
-        yield capacity_m
+        yield degraded_states_count_m
+        yield failed_states_count_m
+        yield size_m
 
     # ---- Physical Disks -----------------------------------------------
 

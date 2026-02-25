@@ -116,49 +116,12 @@ groups:
   - name: hpe_primera.volumes
     rules:
 
-      - alert: HpePrimeraVolumeNotStarted
-        # Mirror: "HPE Primera: VV {#NAME} state: NOT_STARTED / LDS_NOT_STARTED"
-        expr: hpe_primera_volume_state > 1 and hpe_primera_volume_state <= 2
-        for: 0m
-        labels:
-          severity: warning
-        annotations:
-          summary: >
-            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} not started
-          description: >
-            Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
-            has state {{ $value }} (1=LDS_NOT_STARTED, 2=NOT_STARTED).
-
-      - alert: HpePrimeraVolumeNeedsCheck
-        # Mirror: "HPE Primera: VV {#NAME} state: NEEDS_CHECK / NEEDS_MAINT_CHECK"
-        expr: hpe_primera_volume_state >= 3 and hpe_primera_volume_state <= 4
-        for: 0m
-        labels:
-          severity: warning
-        annotations:
-          summary: >
-            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} needs check
-          description: >
-            Volume {{ $labels.volume }} on {{ $labels.array }} requires a consistency
-            or maintenance check (state={{ $value }}).
-
-      - alert: HpePrimeraVolumeFailed
-        # Mirror: "HPE Primera: VV {#NAME} state: INTERNAL_CONSISTENCY_ERROR / SNAPDATA_INVALID / etc."
-        expr: hpe_primera_volume_failed == 1
-        for: 0m
-        labels:
-          severity: critical
-        annotations:
-          summary: >
-            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} in error state
-          description: >
-            Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
-            is in a failed/error state (code {{ $value }}).  Refer to WSAPI state
-            codes 5–9 for the specific cause.
-
       - alert: HpePrimeraVolumeDegraded
-        # Mirror: "HPE Primera: VV {#NAME} state: DEGRADED_AVAIL / DEGRADED_PERF"
-        expr: hpe_primera_volume_degraded == 1
+        # Mirrors: "HPE Primera: Volume [{#NAME}]: Degraded"
+        # Fires when $.state == 2 (DEGRADED).
+        # Check hpe_primera_volume_degraded_states_count and the array WSAPI
+        # for the specific degradedStates codes causing this condition.
+        expr: hpe_primera_volume_state == 2
         for: 0m
         labels:
           severity: warning
@@ -167,20 +130,23 @@ groups:
             HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} degraded
           description: >
             Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
-            is degraded (10=DEGRADED_AVAIL, 11=DEGRADED_PERF).
+            is in a DEGRADED state. Check hpe_primera_volume_degraded_states_count
+            for the number of active degraded state conditions.
 
-      - alert: HpePrimeraVolumeStale
-        # Mirror: "HPE Primera: VV {#NAME} state: STALE"
-        expr: hpe_primera_volume_stale == 1
+      - alert: HpePrimeraVolumeFailed
+        # Mirrors: "HPE Primera: Volume [{#NAME}]: Failed"
+        # Fires when $.state == 3 (FAILED).
+        expr: hpe_primera_volume_state == 3
         for: 0m
         labels:
-          severity: warning
+          severity: critical
         annotations:
           summary: >
-            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} is stale
+            HPE Primera {{ $labels.array }}: Volume {{ $labels.volume }} FAILED
           description: >
-            Volume {{ $labels.volume }} on {{ $labels.array }} is stale — parts of
-            the volume contain old data due to a copy-on-write failure.
+            Volume {{ $labels.volume }} (CPG: {{ $labels.cpg }}) on {{ $labels.array }}
+            has FAILED. Check hpe_primera_volume_failed_states_count for the number
+            of active failure state conditions.
 
   - name: hpe_primera.disks
     rules:
